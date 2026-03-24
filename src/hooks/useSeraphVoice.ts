@@ -4,6 +4,9 @@ import { supabase } from "@/integrations/supabase/client";
 type Message = { role: "user" | "assistant"; content: string };
 type SeraphState = "idle" | "listening" | "thinking" | "speaking";
 
+const SILENCE_TIMEOUT_MS = 2000;
+const SILENCE_THRESHOLD = 0.01;
+
 async function readErrorMessage(response: Response, fallback: string) {
   try {
     const data = await response.json();
@@ -25,6 +28,21 @@ export function useSeraphVoice() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const isListeningRef = useRef(false);
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const silenceCheckRef = useRef<number | null>(null);
+  const autoListenRef = useRef(false);
+  const messagesRef = useRef<Message[]>([]);
+
+  // Keep messagesRef in sync
+  const updateMessages = useCallback((updater: Message[] | ((prev: Message[]) => Message[])) => {
+    setMessages((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      messagesRef.current = next;
+      return next;
+    });
+  }, []);
 
   const stopAudio = useCallback(() => {
     if (audioRef.current) {
@@ -33,7 +51,30 @@ export function useSeraphVoice() {
     }
   }, []);
 
-  const speak = useCallback(async (text: string) => {
+  const clearSilenceDetection = useCallback(() => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    if (silenceCheckRef.current) {
+      cancelAnimationFrame(silenceCheckRef.current);
+      silenceCheckRef.current = null;
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+    }
+    analyserRef.current = null;
+  }, []);
+
+  const stopListeningInternal = useCallback(() => {
+    clearSilenceDetection();
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+      mediaRecorderRef.current.stop();
+    }
+  }, [clearSilenceDetection]);
+
+  const speak = useCallback(async (text: string, shouldAutoListen: boolean) => {
     setState("speaking");
     try {
       const response = await fetch(
@@ -62,6 +103,9 @@ export function useSeraphVoice() {
         audio.onended = () => {
           URL.revokeObjectURL(url);
           audioRef.current = null;
+          if (shouldAutoListen) {
+            autoListenRef.current = true;
+          }
           setState("idle");
           resolve();
         };
@@ -84,8 +128,8 @@ export function useSeraphVoice() {
     setError(null);
 
     const userMsg: Message = { role: "user", content: userText };
-    const updatedMessages = [...messages, userMsg];
-    setMessages(updatedMessages);
+    const updatedMessages = [...messagesRef.current, userMsg];
+    updateMessages(updatedMessages);
 
     try {
       const { data, error: fnError } = await supabase.functions.invoke("seraph-chat", {
@@ -101,16 +145,16 @@ export function useSeraphVoice() {
 
       const reply = data?.content || "I am here.";
       const assistantMsg: Message = { role: "assistant", content: reply };
-      setMessages((prev) => [...prev, assistantMsg]);
+      updateMessages((prev) => [...prev, assistantMsg]);
       setLastResponse(reply);
 
-      await speak(reply);
+      await speak(reply, true);
     } catch (e: any) {
       console.error("Chat error:", e);
       setError(e.message || "Connection lost");
       setState("idle");
     }
-  }, [messages, speak]);
+  }, [speak, updateMessages]);
 
   const transcribeAudio = useCallback(async (audioBlob: Blob) => {
     setState("thinking");
@@ -153,10 +197,49 @@ export function useSeraphVoice() {
     }
   }, [think]);
 
+  const startSilenceDetection = useCallback((stream: MediaStream) => {
+    const audioContext = new AudioContext();
+    audioContextRef.current = audioContext;
+    const source = audioContext.createMediaStreamSource(stream);
+    const analyser = audioContext.createAnalyser();
+    analyser.fftSize = 512;
+    source.connect(analyser);
+    analyserRef.current = analyser;
+
+    const dataArray = new Float32Array(analyser.fftSize);
+    let lastSoundTime = Date.now();
+
+    const checkSilence = () => {
+      if (!isListeningRef.current) return;
+
+      analyser.getFloatTimeDomainData(dataArray);
+      let rms = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        rms += dataArray[i] * dataArray[i];
+      }
+      rms = Math.sqrt(rms / dataArray.length);
+
+      if (rms > SILENCE_THRESHOLD) {
+        lastSoundTime = Date.now();
+      }
+
+      if (Date.now() - lastSoundTime > SILENCE_TIMEOUT_MS) {
+        // 2 seconds of silence detected — auto-stop
+        stopListeningInternal();
+        return;
+      }
+
+      silenceCheckRef.current = requestAnimationFrame(checkSilence);
+    };
+
+    silenceCheckRef.current = requestAnimationFrame(checkSilence);
+  }, [stopListeningInternal]);
+
   const startListening = useCallback(async () => {
     if (isListeningRef.current) return;
     setError(null);
     stopAudio();
+    autoListenRef.current = false;
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -171,8 +254,8 @@ export function useSeraphVoice() {
       };
 
       recorder.onstop = () => {
+        clearSilenceDetection();
         const blob = new Blob(chunksRef.current, { type: "audio/webm" });
-        // Clean up stream
         mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
         mediaStreamRef.current = null;
         isListeningRef.current = false;
@@ -188,21 +271,35 @@ export function useSeraphVoice() {
       isListeningRef.current = true;
       setState("listening");
       setTranscript("");
+
+      // Start silence detection for auto-send
+      startSilenceDetection(stream);
     } catch (e: any) {
       console.error("Microphone error:", e);
       setError("Microphone access denied");
       setState("idle");
     }
-  }, [stopAudio, transcribeAudio]);
+  }, [stopAudio, transcribeAudio, startSilenceDetection, clearSilenceDetection]);
+
+  // Auto-listen after speaking: watch for state transitions
+  const prevStateRef = useRef<SeraphState>("idle");
+  if (state === "idle" && prevStateRef.current === "speaking" && autoListenRef.current) {
+    autoListenRef.current = false;
+    prevStateRef.current = state;
+    // Use setTimeout to avoid calling startListening during render
+    setTimeout(() => startListening(), 300);
+  } else {
+    prevStateRef.current = state;
+  }
 
   const stopListening = useCallback(() => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
-      mediaRecorderRef.current.stop();
-    }
-  }, []);
+    stopListeningInternal();
+  }, [stopListeningInternal]);
 
   const interrupt = useCallback(() => {
+    autoListenRef.current = false;
     stopAudio();
+    clearSilenceDetection();
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
       mediaRecorderRef.current.stop();
     }
@@ -210,7 +307,7 @@ export function useSeraphVoice() {
     mediaStreamRef.current = null;
     isListeningRef.current = false;
     setState("idle");
-  }, [stopAudio]);
+  }, [stopAudio, clearSilenceDetection]);
 
   return {
     state,
