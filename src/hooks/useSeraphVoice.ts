@@ -208,6 +208,7 @@ export function useSeraphVoice() {
 
     const dataArray = new Float32Array(analyser.fftSize);
     let lastSoundTime = Date.now();
+    let userHasSpoken = false;
 
     const checkSilence = () => {
       if (!isListeningRef.current) return;
@@ -221,10 +222,11 @@ export function useSeraphVoice() {
 
       if (rms > SILENCE_THRESHOLD) {
         lastSoundTime = Date.now();
+        userHasSpoken = true;
       }
 
-      if (Date.now() - lastSoundTime > SILENCE_TIMEOUT_MS) {
-        // 2 seconds of silence detected — auto-stop
+      // Only auto-stop after 2s silence if the user actually spoke
+      if (userHasSpoken && Date.now() - lastSoundTime > SILENCE_TIMEOUT_MS) {
         stopListeningInternal();
         return;
       }
