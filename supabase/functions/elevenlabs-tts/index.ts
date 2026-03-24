@@ -1,5 +1,4 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { encode as base64Encode } from "https://deno.land/std@0.168.0/encoding/base64.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -7,8 +6,22 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// Roger voice — deep, authoritative
 const DEFAULT_VOICE_ID = "CwhRBWXzGAHq8TQ4Fs17";
+
+function getSafeElevenLabsApiKey() {
+  const rawApiKey = Deno.env.get("ELEVENLABS_API_KEY") ?? "";
+  const sanitizedApiKey = rawApiKey.replace(/[^\x20-\x7E]/g, "").trim();
+
+  if (!sanitizedApiKey) {
+    throw new Error("ELEVENLABS_API_KEY not configured");
+  }
+
+  if (sanitizedApiKey !== rawApiKey.trim()) {
+    console.warn("ELEVENLABS_API_KEY contained unsupported characters and was sanitized");
+  }
+
+  return sanitizedApiKey;
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -17,19 +30,17 @@ serve(async (req) => {
 
   try {
     const { text, voiceId } = await req.json();
-    const ELEVENLABS_API_KEY = Deno.env.get("ELEVENLABS_API_KEY");
-    if (!ELEVENLABS_API_KEY) throw new Error("ELEVENLABS_API_KEY not configured");
-
+    const elevenLabsApiKey = getSafeElevenLabsApiKey();
     const voice = voiceId || DEFAULT_VOICE_ID;
 
     const response = await fetch(
       `https://api.elevenlabs.io/v1/text-to-speech/${voice}?output_format=mp3_44100_128`,
       {
         method: "POST",
-        headers: {
-          "xi-api-key": ELEVENLABS_API_KEY,
-          "Content-Type": "application/json",
-        },
+        headers: new Headers([
+          ["xi-api-key", elevenLabsApiKey],
+          ["Content-Type", "application/json"],
+        ]),
         body: JSON.stringify({
           text,
           model_id: "eleven_turbo_v2_5",
