@@ -135,6 +135,8 @@ export function useSeraphVoice() {
         setState("idle");
       });
 
+      const serverUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/vapi-tools`;
+
       // Start the call with inline assistant config
       await vapi.start({
         model: {
@@ -142,6 +144,42 @@ export function useSeraphVoice() {
           model: "gemini-2.0-flash" as any,
           messages: [
             { role: "system", content: SERAPH_SYSTEM_PROMPT },
+          ],
+          tools: [
+            {
+              type: "function",
+              function: {
+                name: "web_search",
+                description: "Search the web for current information, news, facts, or any real-time data. Use this when the user asks about current events, wants to look something up, or needs factual information you're not certain about.",
+                parameters: {
+                  type: "object",
+                  properties: {
+                    query: {
+                      type: "string",
+                      description: "The search query to look up",
+                    },
+                  },
+                  required: ["query"],
+                },
+              },
+            } as any,
+            {
+              type: "function",
+              function: {
+                name: "web_research",
+                description: "Perform deep web research on a topic. Use this when the user asks for in-depth analysis, comprehensive research, or detailed investigation of a subject.",
+                parameters: {
+                  type: "object",
+                  properties: {
+                    query: {
+                      type: "string",
+                      description: "The research topic or question to investigate deeply",
+                    },
+                  },
+                  required: ["query"],
+                },
+              },
+            } as any,
           ],
         },
         voice: {
@@ -152,6 +190,9 @@ export function useSeraphVoice() {
         } as any,
         firstMessage: "I'm here. What do you need?",
         name: "Seraph",
+        server: {
+          url: serverUrl,
+        } as any,
       });
     } catch (e: any) {
       console.error("Vapi start error:", e);
