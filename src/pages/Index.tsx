@@ -50,7 +50,7 @@ const Index = () => {
         </div>
 
         {/* Orb */}
-        <SeraphOrb state={state} onActivate={startListening} onInterrupt={interrupt} />
+        <SeraphOrb state={state} onActivate={startListening} onStop={stopListening} onInterrupt={interrupt} />
 
         {/* Transcript */}
         <SeraphTranscript

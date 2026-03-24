@@ -2,7 +2,6 @@ import { useState, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
 type Message = { role: "user" | "assistant"; content: string };
-
 type SeraphState = "idle" | "listening" | "thinking" | "speaking";
 
 export function useSeraphVoice() {
@@ -13,7 +12,9 @@ export function useSeraphVoice() {
   const [error, setError] = useState<string | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const recognitionRef = useRef<any>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
   const isListeningRef = useRef(false);
 
   const stopAudio = useCallback(() => {
@@ -100,82 +101,101 @@ export function useSeraphVoice() {
     }
   }, [messages, speak]);
 
-  const startListening = useCallback(() => {
-    if (isListeningRef.current) return;
+  const transcribeAudio = useCallback(async (audioBlob: Blob) => {
+    setState("thinking");
+    setTranscript("");
 
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    try {
+      const formData = new FormData();
+      formData.append("audio", audioBlob, "recording.webm");
 
-    if (!SpeechRecognition) {
-      setError("Speech recognition not supported in this browser");
-      return;
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/elevenlabs-transcribe`,
+        {
+          method: "POST",
+          headers: {
+            apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+          },
+          body: formData,
+        }
+      );
+
+      if (!response.ok) throw new Error("Transcription failed");
+
+      const data = await response.json();
+      const text = data?.text?.trim();
+
+      if (text) {
+        setTranscript(text);
+        await think(text);
+      } else {
+        setError("No speech detected");
+        setState("idle");
+      }
+    } catch (e: any) {
+      console.error("Transcription error:", e);
+      setError(e.message || "Transcription failed");
+      setState("idle");
     }
+  }, [think]);
 
+  const startListening = useCallback(async () => {
+    if (isListeningRef.current) return;
+    setError(null);
     stopAudio();
 
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = true;
-    recognition.lang = "en-US";
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      chunksRef.current = [];
 
-    recognition.onstart = () => {
-      isListeningRef.current = true;
-      setState("listening");
-      setTranscript("");
-    };
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
 
-    recognition.onresult = (event: any) => {
-      let finalText = "";
-      let interimText = "";
-      for (let i = 0; i < event.results.length; i++) {
-        if (event.results[i].isFinal) {
-          finalText += event.results[i][0].transcript;
-        } else {
-          interimText += event.results[i][0].transcript;
-        }
-      }
-      setTranscript(finalText || interimText);
-    };
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
 
-    recognition.onend = () => {
-      isListeningRef.current = false;
-      recognitionRef.current = null;
-      // Process the final transcript
-      setTranscript((current) => {
-        if (current.trim()) {
-          think(current.trim());
+      recorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        // Clean up stream
+        mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+        mediaStreamRef.current = null;
+        isListeningRef.current = false;
+
+        if (blob.size > 0) {
+          transcribeAudio(blob);
         } else {
           setState("idle");
         }
-        return current;
-      });
-    };
+      };
 
-    recognition.onerror = (event: any) => {
-      console.error("Speech recognition error:", event.error);
-      isListeningRef.current = false;
-      recognitionRef.current = null;
-      if (event.error !== "no-speech") {
-        setError(`Microphone error: ${event.error}`);
-      }
+      recorder.start();
+      isListeningRef.current = true;
+      setState("listening");
+      setTranscript("");
+    } catch (e: any) {
+      console.error("Microphone error:", e);
+      setError("Microphone access denied");
       setState("idle");
-    };
-
-    recognitionRef.current = recognition;
-    recognition.start();
-  }, [stopAudio, think]);
+    }
+  }, [stopAudio, transcribeAudio]);
 
   const stopListening = useCallback(() => {
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+      mediaRecorderRef.current.stop();
     }
   }, []);
 
   const interrupt = useCallback(() => {
     stopAudio();
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+      mediaRecorderRef.current.stop();
     }
+    mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+    mediaStreamRef.current = null;
+    isListeningRef.current = false;
     setState("idle");
   }, [stopAudio]);
 

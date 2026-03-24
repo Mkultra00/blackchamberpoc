@@ -5,15 +5,18 @@ type SeraphState = "idle" | "listening" | "thinking" | "speaking";
 interface SeraphOrbProps {
   state: SeraphState;
   onActivate: () => void;
+  onStop: () => void;
   onInterrupt: () => void;
 }
 
-export function SeraphOrb({ state, onActivate, onInterrupt }: SeraphOrbProps) {
+export function SeraphOrb({ state, onActivate, onStop, onInterrupt }: SeraphOrbProps) {
   const isActive = state !== "idle";
 
   const handleClick = () => {
     if (state === "speaking" || state === "thinking") {
       onInterrupt();
+    } else if (state === "listening") {
+      onStop();
     } else if (state === "idle") {
       onActivate();
     }
