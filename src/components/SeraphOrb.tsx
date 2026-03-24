@@ -14,6 +14,8 @@ export function SeraphOrb({ state, onActivate, onInterrupt }: SeraphOrbProps) {
   const handleClick = () => {
     if (state === "speaking" || state === "thinking") {
       onInterrupt();
+    } else if (state === "listening") {
+      onStop();
     } else if (state === "idle") {
       onActivate();
     }
