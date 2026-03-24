@@ -6,18 +6,35 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+function getSafeElevenLabsApiKey() {
+  const rawApiKey = Deno.env.get("ELEVENLABS_API_KEY") ?? "";
+  const sanitizedApiKey = rawApiKey.replace(/[^\x20-\x7E]/g, "").trim();
+
+  if (!sanitizedApiKey) {
+    throw new Error("ELEVENLABS_API_KEY not configured");
+  }
+
+  if (sanitizedApiKey !== rawApiKey.trim()) {
+    console.warn("ELEVENLABS_API_KEY contained unsupported characters and was sanitized");
+  }
+
+  return sanitizedApiKey;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const ELEVENLABS_API_KEY = Deno.env.get("ELEVENLABS_API_KEY");
-    if (!ELEVENLABS_API_KEY) throw new Error("ELEVENLABS_API_KEY not configured");
+    const elevenLabsApiKey = getSafeElevenLabsApiKey();
 
     const formData = await req.formData();
-    const audioFile = formData.get("audio") as File;
-    if (!audioFile) throw new Error("No audio file provided");
+    const audioFile = formData.get("audio");
+
+    if (!(audioFile instanceof File)) {
+      throw new Error("No audio file provided");
+    }
 
     const apiFormData = new FormData();
     apiFormData.append("file", audioFile);
@@ -26,9 +43,7 @@ serve(async (req) => {
 
     const response = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
       method: "POST",
-      headers: {
-        "xi-api-key": ELEVENLABS_API_KEY,
-      },
+      headers: new Headers([["xi-api-key", elevenLabsApiKey]]),
       body: apiFormData,
     });
 
