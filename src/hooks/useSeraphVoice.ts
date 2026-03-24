@@ -4,6 +4,15 @@ import { supabase } from "@/integrations/supabase/client";
 type Message = { role: "user" | "assistant"; content: string };
 type SeraphState = "idle" | "listening" | "thinking" | "speaking";
 
+async function readErrorMessage(response: Response, fallback: string) {
+  try {
+    const data = await response.json();
+    return typeof data?.error === "string" ? data.error : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export function useSeraphVoice() {
   const [state, setState] = useState<SeraphState>("idle");
   const [messages, setMessages] = useState<Message[]>([]);
@@ -40,7 +49,9 @@ export function useSeraphVoice() {
         }
       );
 
-      if (!response.ok) throw new Error("TTS failed");
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response, "Speech playback failed"));
+      }
 
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
@@ -121,7 +132,9 @@ export function useSeraphVoice() {
         }
       );
 
-      if (!response.ok) throw new Error("Transcription failed");
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response, "Transcription failed"));
+      }
 
       const data = await response.json();
       const text = data?.text?.trim();

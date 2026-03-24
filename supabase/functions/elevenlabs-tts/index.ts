@@ -8,6 +8,54 @@ const corsHeaders = {
 
 const DEFAULT_VOICE_ID = "CwhRBWXzGAHq8TQ4Fs17";
 
+function jsonResponse(body: Record<string, unknown>, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+async function parseTtsError(response: Response) {
+  const rawError = await response.text();
+  console.error("ElevenLabs TTS error:", response.status, rawError);
+
+  try {
+    const parsed = JSON.parse(rawError);
+    const detail = parsed?.detail;
+    const providerCode = detail?.status;
+    const providerMessage = detail?.message;
+
+    if (providerCode === "invalid_api_key") {
+      return {
+        status: 401,
+        error: "The ElevenLabs API key is invalid. Update the key and try again.",
+        code: providerCode,
+      };
+    }
+
+    if (providerCode === "detected_unusual_activity") {
+      return {
+        status: 403,
+        error:
+          "Voice playback is unavailable for this ElevenLabs account right now. ElevenLabs has restricted the account, so you’ll need a paid/healthy account or a different API key.",
+        code: providerCode,
+      };
+    }
+
+    return {
+      status: response.status,
+      error: providerMessage || `TTS failed: ${response.status}`,
+      code: providerCode || "tts_failed",
+    };
+  } catch {
+    return {
+      status: response.status,
+      error: `TTS failed: ${response.status}`,
+      code: "tts_failed",
+    };
+  }
+}
+
 function getSafeElevenLabsApiKey() {
   const rawApiKey = Deno.env.get("ELEVENLABS_API_KEY") ?? "";
   const sanitizedApiKey = rawApiKey.replace(/[^\x20-\x7E]/g, "").trim();
@@ -55,9 +103,15 @@ serve(async (req) => {
     );
 
     if (!response.ok) {
-      const errText = await response.text();
-      console.error("ElevenLabs TTS error:", response.status, errText);
-      throw new Error(`TTS failed: ${response.status}`);
+      const parsedError = await parseTtsError(response);
+      return jsonResponse(
+        {
+          error: parsedError.error,
+          code: parsedError.code,
+          providerStatus: response.status,
+        },
+        parsedError.status
+      );
     }
 
     const audioBuffer = await response.arrayBuffer();
@@ -70,9 +124,9 @@ serve(async (req) => {
     });
   } catch (e) {
     console.error("elevenlabs-tts error:", e);
-    return new Response(
-      JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    return jsonResponse(
+      { error: e instanceof Error ? e.message : "Unknown error", code: "internal_error" },
+      500
     );
   }
 });
