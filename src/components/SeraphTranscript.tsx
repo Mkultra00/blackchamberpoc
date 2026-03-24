@@ -24,23 +24,23 @@ export function SeraphTranscript({
 
   return (
     <div className="flex flex-col items-center gap-6 max-w-lg mx-auto px-4">
-      {/* Status indicator */}
-      <div className="flex items-center gap-2">
-        <div
-          className={`w-1.5 h-1.5 rounded-full transition-colors duration-500 ${
-            state === "idle"
-              ? "bg-gold-muted/40"
-              : state === "listening"
-              ? "bg-gold animate-pulse"
-              : state === "thinking"
-              ? "bg-gold-muted animate-pulse"
-              : "bg-gold-glow"
-          }`}
-        />
-        <span className="font-mono text-xs tracking-[0.3em] uppercase text-muted-foreground">
-          {stateLabel[state]}
-        </span>
-      </div>
+      {/* Status indicator — hidden when listening */}
+      {state !== "listening" && (
+        <div className="flex items-center gap-2">
+          <div
+            className={`w-1.5 h-1.5 rounded-full transition-colors duration-500 ${
+              state === "idle"
+                ? "bg-gold-muted/40"
+                : state === "thinking"
+                ? "bg-gold-muted animate-pulse"
+                : "bg-gold-glow"
+            }`}
+          />
+          <span className="font-mono text-xs tracking-[0.3em] uppercase text-muted-foreground">
+            {stateLabel[state]}
+          </span>
+        </div>
+      )}
 
       {/* Error */}
       {error && (
