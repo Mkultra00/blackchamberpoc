@@ -9,7 +9,7 @@ interface SeraphOrbProps {
   onInterrupt: () => void;
 }
 
-export function SeraphOrb({ state, onActivate, onInterrupt }: SeraphOrbProps) {
+export function SeraphOrb({ state, onActivate, onStop, onInterrupt }: SeraphOrbProps) {
   const isActive = state !== "idle";
 
   const handleClick = () => {
