@@ -24,12 +24,11 @@ serve(async (req) => {
     apiFormData.append("model_id", "scribe_v2");
     apiFormData.append("language_code", "eng");
 
-    const headers = new Headers();
-    headers.set("xi-api-key", ELEVENLABS_API_KEY);
-
     const response = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
       method: "POST",
-      headers,
+      headers: {
+        "xi-api-key": ELEVENLABS_API_KEY,
+      },
       body: apiFormData,
     });
 
