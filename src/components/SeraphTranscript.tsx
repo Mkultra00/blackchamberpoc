@@ -17,7 +17,7 @@ export function SeraphTranscript({
 }: SeraphTranscriptProps) {
   const stateLabel: Record<SeraphState, string> = {
     idle: "Awaiting",
-    listening: "Hearing",
+    listening: "",
     thinking: "Contemplating",
     speaking: "Speaking",
   };
