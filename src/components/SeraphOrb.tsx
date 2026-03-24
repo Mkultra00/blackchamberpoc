@@ -5,6 +5,7 @@ type SeraphState = "idle" | "listening" | "thinking" | "speaking";
 interface SeraphOrbProps {
   state: SeraphState;
   onActivate: () => void;
+  onStop: () => void;
   onInterrupt: () => void;
 }
 
