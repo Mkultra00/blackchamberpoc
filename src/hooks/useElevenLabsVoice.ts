@@ -91,7 +91,11 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
         URL.revokeObjectURL(audioUrl);
         audioRef.current = null;
         processingRef.current = false;
-        setState("idle");
+        if (activeRef.current) {
+          resumeListening();
+        } else {
+          setState("idle");
+        }
       };
 
       audio.onerror = () => {
@@ -99,7 +103,11 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
         audioRef.current = null;
         processingRef.current = false;
         setError("Audio playback failed");
-        setState("idle");
+        if (activeRef.current) {
+          resumeListening();
+        } else {
+          setState("idle");
+        }
       };
 
       await audio.play();
