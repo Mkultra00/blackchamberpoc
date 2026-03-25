@@ -15,6 +15,8 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const messagesRef = useRef<Message[]>([]);
   const processingRef = useRef(false);
+  const activeRef = useRef(false);
+  const scribeTokenRef = useRef<string | null>(null);
 
   useEffect(() => { messagesRef.current = messages; }, [messages]);
 
