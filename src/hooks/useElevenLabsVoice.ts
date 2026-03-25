@@ -15,6 +15,8 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const messagesRef = useRef<Message[]>([]);
   const processingRef = useRef(false);
+  const activeRef = useRef(false);
+  const scribeTokenRef = useRef<string | null>(null);
 
   useEffect(() => { messagesRef.current = messages; }, [messages]);
 
@@ -89,7 +91,11 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
         URL.revokeObjectURL(audioUrl);
         audioRef.current = null;
         processingRef.current = false;
-        setState("idle");
+        if (activeRef.current) {
+          resumeListening();
+        } else {
+          setState("idle");
+        }
       };
 
       audio.onerror = () => {
@@ -97,7 +103,11 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
         audioRef.current = null;
         processingRef.current = false;
         setError("Audio playback failed");
-        setState("idle");
+        if (activeRef.current) {
+          resumeListening();
+        } else {
+          setState("idle");
+        }
       };
 
       await audio.play();
@@ -109,9 +119,35 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
     }
   }, []);
 
+  const resumeListening = useCallback(async () => {
+    if (!activeRef.current) return;
+    try {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/elevenlabs-scribe-token`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: SUPABASE_KEY,
+          Authorization: `Bearer ${SUPABASE_KEY}`,
+        },
+      });
+      if (!res.ok) throw new Error("Failed to get transcription token");
+      const { token } = await res.json();
+      await scribe.connect({ token, microphone: { echoCancellation: true, noiseSuppression: true } });
+      setState("listening");
+    } catch (e: any) {
+      console.error("Resume listening error:", e);
+      if (activeRef.current) {
+        setError(e.message || "Failed to resume listening");
+        setState("idle");
+        activeRef.current = false;
+      }
+    }
+  }, [scribe]);
+
   const startListening = useCallback(async () => {
-    if (scribe.isConnected) return;
+    if (activeRef.current) return;
     setError(null);
+    activeRef.current = true;
     setState("thinking");
 
     try {
@@ -137,10 +173,12 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
       console.error("ElevenLabs start error:", e);
       setError(e.message || "Failed to start listening");
       setState("idle");
+      activeRef.current = false;
     }
   }, [scribe]);
 
   const stopListening = useCallback(() => {
+    activeRef.current = false;
     scribe.disconnect();
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
     processingRef.current = false;
@@ -148,6 +186,7 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
   }, [scribe]);
 
   const interrupt = useCallback(() => {
+    activeRef.current = false;
     scribe.disconnect();
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
     processingRef.current = false;
