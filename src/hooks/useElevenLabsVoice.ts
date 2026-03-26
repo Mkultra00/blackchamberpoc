@@ -204,6 +204,7 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
   const startListening = useCallback(async () => {
     if (activeRef.current) return;
     setError(null);
+    ensureAudioContext(); // Unlock audio on user gesture for mobile
     activeRef.current = true;
     setState("thinking");
 
