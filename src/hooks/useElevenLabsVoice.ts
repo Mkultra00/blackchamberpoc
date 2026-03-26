@@ -13,10 +13,21 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
   const [error, setError] = useState<string | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
   const messagesRef = useRef<Message[]>([]);
   const processingRef = useRef(false);
   const activeRef = useRef(false);
   const scribeTokenRef = useRef<string | null>(null);
+
+  // Unlock AudioContext on first user gesture (needed for mobile browsers)
+  const ensureAudioContext = useCallback(() => {
+    if (!audioCtxRef.current) {
+      audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    if (audioCtxRef.current.state === "suspended") {
+      audioCtxRef.current.resume();
+    }
+  }, []);
 
   useEffect(() => { messagesRef.current = messages; }, [messages]);
 
@@ -80,11 +91,48 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
         throw new Error(err.error || `TTS failed: ${ttsRes.status}`);
       }
 
-      const audioBlob = await ttsRes.blob();
-      const audioUrl = URL.createObjectURL(audioBlob);
+      const arrayBuffer = await ttsRes.arrayBuffer();
 
       if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
 
+      // Use AudioContext for mobile compatibility (gesture already unlocked it)
+      const ctx = audioCtxRef.current;
+      if (ctx) {
+        try {
+          const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
+          const source = ctx.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(ctx.destination);
+
+          source.onended = () => {
+            audioRef.current = null;
+            if (activeRef.current) {
+              setTimeout(() => {
+                processingRef.current = false;
+                if (activeRef.current) {
+                  resumeListening();
+                } else {
+                  setState("idle");
+                }
+              }, 1500);
+            } else {
+              processingRef.current = false;
+              setState("idle");
+            }
+          };
+
+          source.start();
+          // Store a stub so stopListening can halt playback
+          audioRef.current = { pause: () => source.stop() } as any;
+          return; // skip the HTMLAudio fallback
+        } catch (decodeErr) {
+          console.warn("AudioContext decode failed, falling back to HTMLAudio", decodeErr);
+        }
+      }
+
+      // Fallback for desktop / when AudioContext unavailable
+      const audioBlob = new Blob([arrayBuffer], { type: "audio/mpeg" });
+      const audioUrl = URL.createObjectURL(audioBlob);
       const audio = new Audio(audioUrl);
       audioRef.current = audio;
 
@@ -156,6 +204,7 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
   const startListening = useCallback(async () => {
     if (activeRef.current) return;
     setError(null);
+    ensureAudioContext(); // Unlock audio on user gesture for mobile
     activeRef.current = true;
     setState("thinking");
 
