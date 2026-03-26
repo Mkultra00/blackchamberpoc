@@ -10,7 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 
 const Index = () => {
-  const [engine, setEngine] = useState<VoiceEngine>("vapi");
+  const [engine, setEngine] = useState<VoiceEngine>("elevenlabs");
   const [historyOpen, setHistoryOpen] = useState(false);
 
   // Both hooks must always be called (React rules of hooks)
