@@ -99,6 +99,10 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
       const ctx = audioCtxRef.current;
       if (ctx) {
         try {
+          // Re-resume in case the context got suspended during async fetches
+          if (ctx.state === "suspended") {
+            await ctx.resume();
+          }
           const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
           const source = ctx.createBufferSource();
           source.buffer = audioBuffer;
