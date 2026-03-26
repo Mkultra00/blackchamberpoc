@@ -92,7 +92,14 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
         audioRef.current = null;
         processingRef.current = false;
         if (activeRef.current) {
-          resumeListening();
+          // Delay before resuming to prevent mic from picking up TTS tail-end audio
+          setTimeout(() => {
+            if (activeRef.current) {
+              resumeListening();
+            } else {
+              setState("idle");
+            }
+          }, 600);
         } else {
           setState("idle");
         }
