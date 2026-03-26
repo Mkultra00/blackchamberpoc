@@ -13,10 +13,21 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
   const [error, setError] = useState<string | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
   const messagesRef = useRef<Message[]>([]);
   const processingRef = useRef(false);
   const activeRef = useRef(false);
   const scribeTokenRef = useRef<string | null>(null);
+
+  // Unlock AudioContext on first user gesture (needed for mobile browsers)
+  const ensureAudioContext = useCallback(() => {
+    if (!audioCtxRef.current) {
+      audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    if (audioCtxRef.current.state === "suspended") {
+      audioCtxRef.current.resume();
+    }
+  }, []);
 
   useEffect(() => { messagesRef.current = messages; }, [messages]);
 
