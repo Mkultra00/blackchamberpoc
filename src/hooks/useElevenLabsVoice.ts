@@ -28,7 +28,8 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
     },
     onCommittedTranscript: (data) => {
       const text = (data.text || "").trim();
-      if (!text || processingRef.current) return;
+      // Ignore very short transcripts (likely echo/noise) and guard against double-processing
+      if (!text || text.split(/\s+/).length < 2 || processingRef.current) return;
 
       processingRef.current = true;
       setTranscript(text);
@@ -90,17 +91,18 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
       audio.onended = () => {
         URL.revokeObjectURL(audioUrl);
         audioRef.current = null;
-        processingRef.current = false;
         if (activeRef.current) {
-          // Delay before resuming to prevent mic from picking up TTS tail-end audio
+          // Keep processingRef locked during the delay to block any stale callbacks
           setTimeout(() => {
+            processingRef.current = false;
             if (activeRef.current) {
               resumeListening();
             } else {
               setState("idle");
             }
-          }, 600);
+          }, 1500);
         } else {
+          processingRef.current = false;
           setState("idle");
         }
       };
