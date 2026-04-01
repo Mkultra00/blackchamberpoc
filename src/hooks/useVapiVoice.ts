@@ -11,22 +11,37 @@ export function useVapiVoice(): SeraphVoiceReturn {
 
   const vapiRef = useRef<Vapi | null>(null);
   const activeRef = useRef(false);
+  const startingRef = useRef(false);
+  const startupTimeoutRef = useRef<number | null>(null);
+
+  const clearStartupTimeout = useCallback(() => {
+    if (startupTimeoutRef.current !== null) {
+      window.clearTimeout(startupTimeoutRef.current);
+      startupTimeoutRef.current = null;
+    }
+  }, []);
 
   const cleanup = useCallback(() => {
+    clearStartupTimeout();
+
     if (vapiRef.current) {
       vapiRef.current.removeAllListeners();
       vapiRef.current.stop();
       vapiRef.current = null;
     }
+
+    startingRef.current = false;
     activeRef.current = false;
-  }, []);
+  }, [clearStartupTimeout]);
 
   useEffect(() => () => cleanup(), [cleanup]);
 
   const startListening = useCallback(async () => {
-    if (activeRef.current) return;
+    if (activeRef.current || startingRef.current) return;
+
     setError(null);
     setState("thinking");
+    startingRef.current = true;
 
     try {
       const response = await fetch(
@@ -47,16 +62,29 @@ export function useVapiVoice(): SeraphVoiceReturn {
       const vapi = new Vapi(token);
       vapiRef.current = vapi;
 
-      vapi.on("call-start", () => { activeRef.current = true; setState("listening"); });
-      vapi.on("call-end", () => { activeRef.current = false; setState("idle"); });
+      vapi.on("call-start", () => {
+        clearStartupTimeout();
+        startingRef.current = false;
+        activeRef.current = true;
+        setState("listening");
+      });
+
+      vapi.on("call-end", () => {
+        cleanup();
+        setState("idle");
+      });
+
       vapi.on("speech-start", () => setState("speaking"));
-      vapi.on("speech-end", () => { if (activeRef.current) setState("listening"); });
+      vapi.on("speech-end", () => {
+        if (activeRef.current) setState("listening");
+      });
 
       vapi.on("message", (msg: any) => {
         if (msg.type === "transcript") {
           if (msg.role === "user" && msg.transcriptType === "partial") {
             setTranscript(msg.transcript || "");
           }
+
           if (msg.role === "user" && msg.transcriptType === "final") {
             const text = msg.transcript || "";
             setTranscript(text);
@@ -65,6 +93,7 @@ export function useVapiVoice(): SeraphVoiceReturn {
               setState("thinking");
             }
           }
+
           if (msg.role === "assistant" && msg.transcriptType === "final") {
             const text = msg.transcript || "";
             if (text.trim()) {
@@ -77,12 +106,20 @@ export function useVapiVoice(): SeraphVoiceReturn {
 
       vapi.on("error", (err: any) => {
         console.error("Vapi error:", err);
+        cleanup();
         setError(err?.message || "Voice connection error");
-        activeRef.current = false;
         setState("idle");
       });
 
       const serverUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/vapi-tools`;
+
+      startupTimeoutRef.current = window.setTimeout(() => {
+        if (!activeRef.current) {
+          cleanup();
+          setError("Voice session timed out. Please tap start again.");
+          setState("idle");
+        }
+      }, 12000);
 
       await vapi.start({
         model: {
@@ -95,7 +132,11 @@ export function useVapiVoice(): SeraphVoiceReturn {
               function: {
                 name: "web_search",
                 description: "Search the web for current information, news, facts, or any real-time data.",
-                parameters: { type: "object", properties: { query: { type: "string", description: "The search query" } }, required: ["query"] },
+                parameters: {
+                  type: "object",
+                  properties: { query: { type: "string", description: "The search query" } },
+                  required: ["query"],
+                },
               },
             } as any,
             {
@@ -103,26 +144,42 @@ export function useVapiVoice(): SeraphVoiceReturn {
               function: {
                 name: "web_research",
                 description: "Perform deep web research on a topic.",
-                parameters: { type: "object", properties: { query: { type: "string", description: "The research topic" } }, required: ["query"] },
+                parameters: {
+                  type: "object",
+                  properties: { query: { type: "string", description: "The research topic" } },
+                  required: ["query"],
+                },
               },
             } as any,
           ],
         },
-        voice: { provider: "11labs" as any, voiceId: "CwhRBWXzGAHq8TQ4Fs17", stability: 0.6, similarityBoost: 0.8 } as any,
+        voice: {
+          provider: "11labs" as any,
+          voiceId: "CwhRBWXzGAHq8TQ4Fs17",
+          stability: 0.6,
+          similarityBoost: 0.8,
+        } as any,
         firstMessage: "I'm here. What do you need?",
         name: "Seraph",
         server: { url: serverUrl } as any,
       });
     } catch (e: any) {
       console.error("Vapi start error:", e);
+      cleanup();
       setError(e.message || "Failed to start voice session");
       setState("idle");
-      cleanup();
     }
+  }, [cleanup, clearStartupTimeout]);
+
+  const stopListening = useCallback(() => {
+    cleanup();
+    setState("idle");
   }, [cleanup]);
 
-  const stopListening = useCallback(() => { cleanup(); setState("idle"); }, [cleanup]);
-  const interrupt = useCallback(() => { cleanup(); setState("idle"); }, [cleanup]);
+  const interrupt = useCallback(() => {
+    cleanup();
+    setState("idle");
+  }, [cleanup]);
 
   return { state, transcript, lastResponse, messages, error, startListening, stopListening, interrupt };
 }
