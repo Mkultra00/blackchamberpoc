@@ -49,32 +49,34 @@ const Index = () => {
           </h1>
         </div>
         <div className="flex items-center gap-4">
-          {/* Engine toggle */}
-          <div className="flex items-center gap-2">
-            <Label
-              htmlFor="engine-toggle"
-              className={`font-mono text-[9px] tracking-[0.2em] uppercase transition-colors ${
-                engine === "vapi" ? "text-foreground" : "text-muted-foreground/50"
-              }`}
-            >
-              Vapi
-            </Label>
-            <Switch
-              id="engine-toggle"
-              checked={engine === "elevenlabs"}
-              onCheckedChange={handleEngineToggle}
-              disabled={isActive}
-              className="data-[state=checked]:bg-primary"
-            />
-            <Label
-              htmlFor="engine-toggle"
-              className={`font-mono text-[9px] tracking-[0.2em] uppercase transition-colors ${
-                engine === "elevenlabs" ? "text-foreground" : "text-muted-foreground/50"
-              }`}
-            >
-              ElevenLabs
-            </Label>
-          </div>
+          {/* Engine toggle - hidden on mobile (forced to VAPI) */}
+          {!isMobile && (
+            <div className="flex items-center gap-2">
+              <Label
+                htmlFor="engine-toggle"
+                className={`font-mono text-[9px] tracking-[0.2em] uppercase transition-colors ${
+                  engine === "vapi" ? "text-foreground" : "text-muted-foreground/50"
+                }`}
+              >
+                Vapi
+              </Label>
+              <Switch
+                id="engine-toggle"
+                checked={engine === "elevenlabs"}
+                onCheckedChange={handleEngineToggle}
+                disabled={isActive}
+                className="data-[state=checked]:bg-primary"
+              />
+              <Label
+                htmlFor="engine-toggle"
+                className={`font-mono text-[9px] tracking-[0.2em] uppercase transition-colors ${
+                  engine === "elevenlabs" ? "text-foreground" : "text-muted-foreground/50"
+                }`}
+              >
+                ElevenLabs
+              </Label>
+            </div>
+          )}
 
           <button
             onClick={() => setHistoryOpen(true)}
