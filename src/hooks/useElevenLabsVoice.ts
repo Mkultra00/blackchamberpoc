@@ -14,18 +14,30 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
+  const audioPrimedRef = useRef(false);
   const messagesRef = useRef<Message[]>([]);
   const processingRef = useRef(false);
   const activeRef = useRef(false);
-  const scribeTokenRef = useRef<string | null>(null);
 
   // Unlock AudioContext on first user gesture (needed for mobile browsers)
-  const ensureAudioContext = useCallback(() => {
+  const ensureAudioContext = useCallback(async () => {
     if (!audioCtxRef.current) {
       audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
     }
-    if (audioCtxRef.current.state === "suspended") {
-      audioCtxRef.current.resume();
+
+    const ctx = audioCtxRef.current;
+    if (ctx.state !== "running") {
+      await ctx.resume();
+    }
+
+    // iOS Safari often needs one scheduled frame on user gesture to truly unlock output
+    if (!audioPrimedRef.current) {
+      const silentBuffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+      const silentSource = ctx.createBufferSource();
+      silentSource.buffer = silentBuffer;
+      silentSource.connect(ctx.destination);
+      silentSource.start(0);
+      audioPrimedRef.current = true;
     }
   }, []);
 
@@ -95,20 +107,35 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
 
       if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
 
-      // Use AudioContext for mobile compatibility (gesture already unlocked it)
+      // Use AudioContext for mobile compatibility (gesture unlocked on activation)
       const ctx = audioCtxRef.current;
       if (ctx) {
         try {
-          // Re-resume in case the context got suspended during async fetches
-          if (ctx.state === "suspended") {
+          // Re-resume in case iOS suspended/interrupted audio during async fetches
+          if (ctx.state !== "running") {
             await ctx.resume();
           }
+          if (ctx.state !== "running") {
+            throw new Error(`AudioContext unavailable: ${ctx.state}`);
+          }
+
           const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
           const source = ctx.createBufferSource();
           source.buffer = audioBuffer;
           source.connect(ctx.destination);
+          let sourceStopped = false;
+          const safeStop = () => {
+            if (sourceStopped) return;
+            sourceStopped = true;
+            try {
+              source.stop();
+            } catch {
+              // no-op: source may already be ended
+            }
+          };
 
           source.onended = () => {
+            sourceStopped = true;
             audioRef.current = null;
             if (activeRef.current) {
               setTimeout(() => {
@@ -125,9 +152,9 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
             }
           };
 
-          source.start();
+          source.start(0);
           // Store a stub so stopListening can halt playback
-          audioRef.current = { pause: () => source.stop() } as any;
+          audioRef.current = { pause: safeStop } as any;
           return; // skip the HTMLAudio fallback
         } catch (decodeErr) {
           console.warn("AudioContext decode failed, falling back to HTMLAudio", decodeErr);
@@ -208,7 +235,13 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
   const startListening = useCallback(async () => {
     if (activeRef.current) return;
     setError(null);
-    ensureAudioContext(); // Unlock audio on user gesture for mobile
+
+    try {
+      await ensureAudioContext(); // Unlock + prime audio on user gesture for iOS
+    } catch (audioErr) {
+      console.warn("Audio unlock failed on start", audioErr);
+    }
+
     activeRef.current = true;
     setState("thinking");
 
@@ -259,6 +292,9 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
     return () => {
       scribe.disconnect();
       if (audioRef.current) audioRef.current.pause();
+      if (audioCtxRef.current && audioCtxRef.current.state !== "closed") {
+        void audioCtxRef.current.close();
+      }
     };
   }, []);
 
