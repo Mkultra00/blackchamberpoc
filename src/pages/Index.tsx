@@ -12,7 +12,8 @@ import { Label } from "@/components/ui/label";
 
 const Index = () => {
   const isMobile = useIsMobile();
-  const [engine, setEngine] = useState<VoiceEngine>(isMobile ? "vapi" : "elevenlabs");
+  const [engine, setEngine] = useState<VoiceEngine>("elevenlabs");
+  const effectiveEngine: VoiceEngine = isMobile ? "vapi" : engine;
   const [historyOpen, setHistoryOpen] = useState(false);
 
   // Both hooks must always be called (React rules of hooks)
