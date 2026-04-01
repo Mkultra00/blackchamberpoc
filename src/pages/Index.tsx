@@ -4,13 +4,15 @@ import { SeraphTranscript } from "@/components/SeraphTranscript";
 import { SeraphHistory } from "@/components/SeraphHistory";
 import { useVapiVoice } from "@/hooks/useVapiVoice";
 import { useElevenLabsVoice } from "@/hooks/useElevenLabsVoice";
+import { useIsMobile } from "@/hooks/use-mobile";
 import type { VoiceEngine } from "@/hooks/useSeraphVoice";
 import { MessageSquare } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 
 const Index = () => {
-  const [engine, setEngine] = useState<VoiceEngine>("elevenlabs");
+  const isMobile = useIsMobile();
+  const [engine, setEngine] = useState<VoiceEngine>(isMobile ? "vapi" : "elevenlabs");
   const [historyOpen, setHistoryOpen] = useState(false);
 
   // Both hooks must always be called (React rules of hooks)
