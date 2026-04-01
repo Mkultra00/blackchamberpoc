@@ -12,14 +12,15 @@ import { Label } from "@/components/ui/label";
 
 const Index = () => {
   const isMobile = useIsMobile();
-  const [engine, setEngine] = useState<VoiceEngine>(isMobile ? "vapi" : "elevenlabs");
+  const [engine, setEngine] = useState<VoiceEngine>("elevenlabs");
+  const effectiveEngine: VoiceEngine = isMobile ? "vapi" : engine;
   const [historyOpen, setHistoryOpen] = useState(false);
 
   // Both hooks must always be called (React rules of hooks)
   const vapi = useVapiVoice();
   const elevenlabs = useElevenLabsVoice();
 
-  const active = engine === "vapi" ? vapi : elevenlabs;
+  const active = effectiveEngine === "vapi" ? vapi : elevenlabs;
   const { state, transcript, lastResponse, messages, error, startListening, stopListening, interrupt } = active;
 
   const isActive = state !== "idle";
@@ -48,32 +49,34 @@ const Index = () => {
           </h1>
         </div>
         <div className="flex items-center gap-4">
-          {/* Engine toggle */}
-          <div className="flex items-center gap-2">
-            <Label
-              htmlFor="engine-toggle"
-              className={`font-mono text-[9px] tracking-[0.2em] uppercase transition-colors ${
-                engine === "vapi" ? "text-foreground" : "text-muted-foreground/50"
-              }`}
-            >
-              Vapi
-            </Label>
-            <Switch
-              id="engine-toggle"
-              checked={engine === "elevenlabs"}
-              onCheckedChange={handleEngineToggle}
-              disabled={isActive}
-              className="data-[state=checked]:bg-primary"
-            />
-            <Label
-              htmlFor="engine-toggle"
-              className={`font-mono text-[9px] tracking-[0.2em] uppercase transition-colors ${
-                engine === "elevenlabs" ? "text-foreground" : "text-muted-foreground/50"
-              }`}
-            >
-              ElevenLabs
-            </Label>
-          </div>
+          {/* Engine toggle - hidden on mobile (forced to VAPI) */}
+          {!isMobile && (
+            <div className="flex items-center gap-2">
+              <Label
+                htmlFor="engine-toggle"
+                className={`font-mono text-[9px] tracking-[0.2em] uppercase transition-colors ${
+                  engine === "vapi" ? "text-foreground" : "text-muted-foreground/50"
+                }`}
+              >
+                Vapi
+              </Label>
+              <Switch
+                id="engine-toggle"
+                checked={engine === "elevenlabs"}
+                onCheckedChange={handleEngineToggle}
+                disabled={isActive}
+                className="data-[state=checked]:bg-primary"
+              />
+              <Label
+                htmlFor="engine-toggle"
+                className={`font-mono text-[9px] tracking-[0.2em] uppercase transition-colors ${
+                  engine === "elevenlabs" ? "text-foreground" : "text-muted-foreground/50"
+                }`}
+              >
+                ElevenLabs
+              </Label>
+            </div>
+          )}
 
           <button
             onClick={() => setHistoryOpen(true)}
