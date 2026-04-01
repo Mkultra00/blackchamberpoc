@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useScribe, CommitStrategy } from "@elevenlabs/react";
-import { SERAPH_SYSTEM_PROMPT, type SeraphState, type Message, type SeraphVoiceReturn } from "./useSeraphVoice";
+import { type SeraphState, type Message, type SeraphVoiceReturn } from "./useSeraphVoice";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -15,6 +15,7 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const audioPrimedRef = useRef(false);
+  const htmlAudioPrimedRef = useRef(false);
   const messagesRef = useRef<Message[]>([]);
   const processingRef = useRef(false);
   const activeRef = useRef(false);
@@ -38,6 +39,27 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
       silentSource.connect(ctx.destination);
       silentSource.start(0);
       audioPrimedRef.current = true;
+    }
+  }, []);
+
+  const ensureHtmlAudioUnlocked = useCallback(async () => {
+    if (htmlAudioPrimedRef.current) return;
+
+    const unlockAudio = new Audio(
+      "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAIlYAAESsAAACABAAZGF0YQAAAAA="
+    );
+    unlockAudio.setAttribute("playsinline", "true");
+    unlockAudio.setAttribute("webkit-playsinline", "true");
+    unlockAudio.muted = true;
+    unlockAudio.volume = 0;
+
+    try {
+      await unlockAudio.play();
+      unlockAudio.pause();
+      unlockAudio.currentTime = 0;
+      htmlAudioPrimedRef.current = true;
+    } catch (e) {
+      console.warn("HTMLAudio unlock failed", e);
     }
   }, []);
 
@@ -107,6 +129,67 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
 
       if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
 
+      const playWithHtmlAudio = async () => {
+        const audioBlob = new Blob([arrayBuffer], { type: "audio/mpeg" });
+        const audioUrl = URL.createObjectURL(audioBlob);
+        const audio = new Audio(audioUrl);
+        audio.setAttribute("playsinline", "true");
+        audio.setAttribute("webkit-playsinline", "true");
+        audio.preload = "auto";
+        audioRef.current = audio;
+
+        audio.onended = () => {
+          URL.revokeObjectURL(audioUrl);
+          audioRef.current = null;
+          if (activeRef.current) {
+            // Keep processingRef locked during the delay to block any stale callbacks
+            setTimeout(() => {
+              processingRef.current = false;
+              if (activeRef.current) {
+                resumeListening();
+              } else {
+                setState("idle");
+              }
+            }, 1500);
+          } else {
+            processingRef.current = false;
+            setState("idle");
+          }
+        };
+
+        audio.onerror = () => {
+          URL.revokeObjectURL(audioUrl);
+          audioRef.current = null;
+          processingRef.current = false;
+          setError("Audio playback failed");
+          if (activeRef.current) {
+            resumeListening();
+          } else {
+            setState("idle");
+          }
+        };
+
+        await audio.play();
+      };
+
+      const isIOS =
+        /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+        (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
+      // On iOS, media element playback is usually more reliable than decodeAudioData output.
+      if (isIOS) {
+        try {
+          await playWithHtmlAudio();
+          return;
+        } catch (iosPlayErr) {
+          console.warn("iOS HTMLAudio playback failed, trying AudioContext", iosPlayErr);
+          if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current = null;
+          }
+        }
+      }
+
       // Use AudioContext for mobile compatibility (gesture unlocked on activation)
       const ctx = audioCtxRef.current;
       if (ctx) {
@@ -162,43 +245,7 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
       }
 
       // Fallback for desktop / when AudioContext unavailable
-      const audioBlob = new Blob([arrayBuffer], { type: "audio/mpeg" });
-      const audioUrl = URL.createObjectURL(audioBlob);
-      const audio = new Audio(audioUrl);
-      audioRef.current = audio;
-
-      audio.onended = () => {
-        URL.revokeObjectURL(audioUrl);
-        audioRef.current = null;
-        if (activeRef.current) {
-          // Keep processingRef locked during the delay to block any stale callbacks
-          setTimeout(() => {
-            processingRef.current = false;
-            if (activeRef.current) {
-              resumeListening();
-            } else {
-              setState("idle");
-            }
-          }, 1500);
-        } else {
-          processingRef.current = false;
-          setState("idle");
-        }
-      };
-
-      audio.onerror = () => {
-        URL.revokeObjectURL(audioUrl);
-        audioRef.current = null;
-        processingRef.current = false;
-        setError("Audio playback failed");
-        if (activeRef.current) {
-          resumeListening();
-        } else {
-          setState("idle");
-        }
-      };
-
-      await audio.play();
+      await playWithHtmlAudio();
     } catch (e: any) {
       console.error("ElevenLabs pipeline error:", e);
       setError(e.message || "Something went wrong");
@@ -236,10 +283,14 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
     if (activeRef.current) return;
     setError(null);
 
-    try {
-      await ensureAudioContext(); // Unlock + prime audio on user gesture for iOS
-    } catch (audioErr) {
-      console.warn("Audio unlock failed on start", audioErr);
+    const audioInitResults = await Promise.allSettled([
+      ensureAudioContext(), // Unlock + prime AudioContext on user gesture
+      ensureHtmlAudioUnlocked(), // Unlock media element playback for iOS autoplay rules
+    ]);
+    for (const result of audioInitResults) {
+      if (result.status === "rejected") {
+        console.warn("Audio unlock step failed", result.reason);
+      }
     }
 
     activeRef.current = true;
@@ -270,7 +321,7 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
       setState("idle");
       activeRef.current = false;
     }
-  }, [scribe]);
+  }, [scribe, ensureAudioContext, ensureHtmlAudioUnlocked]);
 
   const stopListening = useCallback(() => {
     activeRef.current = false;
