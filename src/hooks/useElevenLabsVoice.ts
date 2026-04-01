@@ -48,7 +48,8 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
     const unlockAudio = new Audio(
       "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAIlYAAESsAAACABAAZGF0YQAAAAA="
     );
-    unlockAudio.playsInline = true;
+    unlockAudio.setAttribute("playsinline", "true");
+    unlockAudio.setAttribute("webkit-playsinline", "true");
     unlockAudio.muted = true;
     unlockAudio.volume = 0;
 
@@ -132,7 +133,8 @@ export function useElevenLabsVoice(): SeraphVoiceReturn {
         const audioBlob = new Blob([arrayBuffer], { type: "audio/mpeg" });
         const audioUrl = URL.createObjectURL(audioBlob);
         const audio = new Audio(audioUrl);
-        audio.playsInline = true;
+        audio.setAttribute("playsinline", "true");
+        audio.setAttribute("webkit-playsinline", "true");
         audio.preload = "auto";
         audioRef.current = audio;
 
