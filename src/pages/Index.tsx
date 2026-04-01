@@ -20,7 +20,7 @@ const Index = () => {
   const vapi = useVapiVoice();
   const elevenlabs = useElevenLabsVoice();
 
-  const active = engine === "vapi" ? vapi : elevenlabs;
+  const active = effectiveEngine === "vapi" ? vapi : elevenlabs;
   const { state, transcript, lastResponse, messages, error, startListening, stopListening, interrupt } = active;
 
   const isActive = state !== "idle";
