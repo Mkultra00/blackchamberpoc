@@ -3,45 +3,51 @@ import { SeraphOrb } from "@/components/SeraphOrb";
 import { SeraphTranscript } from "@/components/SeraphTranscript";
 import { SeraphHistory } from "@/components/SeraphHistory";
 import { useVapiVoice } from "@/hooks/useVapiVoice";
-import { useElevenLabsVoice } from "@/hooks/useElevenLabsVoice";
 import { useIsMobile } from "@/hooks/use-mobile";
-import type { VoiceEngine } from "@/hooks/useSeraphVoice";
+import type { VoiceEngine, SeraphVoiceReturn } from "@/hooks/useSeraphVoice";
 import { MessageSquare } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import React from "react";
 
-const Index = () => {
+// Lazy-load the ElevenLabs hook component to avoid mounting useScribe when not needed
+const ElevenLabsProvider = React.lazy(() => import("@/components/ElevenLabsProvider"));
+
+const defaultVoice: SeraphVoiceReturn = {
+  state: "idle",
+  transcript: "",
+  lastResponse: "",
+  messages: [],
+  error: null,
+  startListening: async () => {},
+  stopListening: () => {},
+  interrupt: () => {},
+};
+
+const IndexContent = ({ voiceEngine, elevenlabsVoice }: { voiceEngine: VoiceEngine; elevenlabsVoice: SeraphVoiceReturn | null }) => {
   const isMobile = useIsMobile();
-  const [engine, setEngine] = useState<VoiceEngine>("elevenlabs");
+  const [engine, setEngine] = useState<VoiceEngine>(voiceEngine);
   const effectiveEngine: VoiceEngine = isMobile ? "vapi" : engine;
   const [historyOpen, setHistoryOpen] = useState(false);
 
-  // Both hooks must always be called (React rules of hooks)
   const vapi = useVapiVoice();
-  const elevenlabs = useElevenLabsVoice();
-
-  const active = effectiveEngine === "vapi" ? vapi : elevenlabs;
+  const active = effectiveEngine === "vapi" ? vapi : (elevenlabsVoice || defaultVoice);
   const { state, transcript, lastResponse, messages, error, startListening, stopListening, interrupt } = active;
 
   const isActive = state !== "idle";
 
   const handleEngineToggle = (checked: boolean) => {
-    // Stop any active session before switching
-    if (isActive) {
-      stopListening();
-    }
+    if (isActive) stopListening();
     setEngine(checked ? "elevenlabs" : "vapi");
   };
 
   return (
     <div className="relative flex flex-col items-center justify-center min-h-screen bg-background overflow-hidden">
-      {/* Background sacred geometry */}
       <div className="absolute inset-0 opacity-[0.03]">
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full border border-primary" />
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full border border-primary rotate-45" />
       </div>
 
-      {/* Header */}
       <header className="absolute top-0 left-0 right-0 flex items-center justify-between px-6 py-5 z-30">
         <div>
           <h1 className="font-mono text-[10px] tracking-[0.4em] uppercase text-muted-foreground">
@@ -49,7 +55,6 @@ const Index = () => {
           </h1>
         </div>
         <div className="flex items-center gap-4">
-          {/* Engine toggle - hidden on mobile (forced to VAPI) */}
           {!isMobile && (
             <div className="flex items-center gap-2">
               <Label
@@ -91,9 +96,7 @@ const Index = () => {
         </div>
       </header>
 
-      {/* Main interface */}
       <div className="relative z-10 flex flex-col items-center gap-16">
-        {/* Title */}
         <div className="text-center animate-fade-up">
           <h2 className="font-display text-3xl md:text-4xl tracking-wide text-foreground mb-2">
             Seraph
@@ -103,10 +106,8 @@ const Index = () => {
           </p>
         </div>
 
-        {/* Orb */}
         <SeraphOrb state={state} onActivate={startListening} onStop={stopListening} onInterrupt={interrupt} />
 
-        {/* Transcript */}
         <SeraphTranscript
           state={state}
           transcript={transcript}
@@ -115,9 +116,31 @@ const Index = () => {
         />
       </div>
 
-      {/* History panel */}
       <SeraphHistory messages={messages} open={historyOpen} onClose={() => setHistoryOpen(false)} />
     </div>
+  );
+};
+
+const Index = () => {
+  const isMobile = useIsMobile();
+
+  // On mobile, skip ElevenLabs entirely to avoid useScribe hook issues
+  if (isMobile) {
+    return <IndexContent voiceEngine="vapi" elevenlabsVoice={null} />;
+  }
+
+  return (
+    <React.Suspense fallback={
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <p className="font-mono text-[10px] tracking-[0.3em] uppercase text-muted-foreground">Loading...</p>
+      </div>
+    }>
+      <ElevenLabsProvider>
+        {(elevenlabsVoice) => (
+          <IndexContent voiceEngine="elevenlabs" elevenlabsVoice={elevenlabsVoice} />
+        )}
+      </ElevenLabsProvider>
+    </React.Suspense>
   );
 };
 
