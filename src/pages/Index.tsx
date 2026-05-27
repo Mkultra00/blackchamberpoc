@@ -2,6 +2,7 @@ import { useState } from "react";
 import { SeraphOrb } from "@/components/SeraphOrb";
 import { SeraphTranscript } from "@/components/SeraphTranscript";
 import { SeraphHistory } from "@/components/SeraphHistory";
+import { SeraphTextChat } from "@/components/SeraphTextChat";
 import { useVapiVoice } from "@/hooks/useVapiVoice";
 import { useIsMobile } from "@/hooks/use-mobile";
 import type { VoiceEngine, SeraphVoiceReturn } from "@/hooks/useSeraphVoice";
@@ -29,6 +30,7 @@ const IndexContent = ({ voiceEngine, elevenlabsVoice }: { voiceEngine: VoiceEngi
   const [engine, setEngine] = useState<VoiceEngine>(voiceEngine);
   const effectiveEngine: VoiceEngine = isMobile ? "vapi" : engine;
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [textMode, setTextMode] = useState(false);
 
   const vapi = useVapiVoice();
   const active = effectiveEngine === "vapi" ? vapi : (elevenlabsVoice || defaultVoice);
@@ -55,7 +57,27 @@ const IndexContent = ({ voiceEngine, elevenlabsVoice }: { voiceEngine: VoiceEngi
           </h1>
         </div>
         <div className="flex items-center gap-4">
-          {!isMobile && (
+          <div className="flex items-center gap-2">
+            <Label
+              htmlFor="text-mode-toggle"
+              className={`font-mono text-[9px] tracking-[0.2em] uppercase transition-colors ${
+                textMode ? "text-foreground" : "text-muted-foreground/50"
+              }`}
+            >
+              Text
+            </Label>
+            <Switch
+              id="text-mode-toggle"
+              checked={textMode}
+              onCheckedChange={(checked) => {
+                if (isActive) stopListening();
+                setTextMode(checked);
+              }}
+              className="data-[state=checked]:bg-primary"
+            />
+          </div>
+
+          {!isMobile && !textMode && (
             <div className="flex items-center gap-2">
               <Label
                 htmlFor="engine-toggle"
@@ -106,14 +128,19 @@ const IndexContent = ({ voiceEngine, elevenlabsVoice }: { voiceEngine: VoiceEngi
           </p>
         </div>
 
-        <SeraphOrb state={state} onActivate={startListening} onStop={stopListening} onInterrupt={interrupt} />
-
-        <SeraphTranscript
-          state={state}
-          transcript={transcript}
-          lastResponse={lastResponse}
-          error={error}
-        />
+        {textMode ? (
+          <SeraphTextChat />
+        ) : (
+          <>
+            <SeraphOrb state={state} onActivate={startListening} onStop={stopListening} onInterrupt={interrupt} />
+            <SeraphTranscript
+              state={state}
+              transcript={transcript}
+              lastResponse={lastResponse}
+              error={error}
+            />
+          </>
+        )}
       </div>
 
       <SeraphHistory messages={messages} open={historyOpen} onClose={() => setHistoryOpen(false)} />
